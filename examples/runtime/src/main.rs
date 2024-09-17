@@ -11,6 +11,11 @@ use wasmtime::{
     component::{Component, Linker},
     Config, Engine, Store,
 };
+use wasmtime_wasi::bindings::cli::{stderr, stdin, stdout};
+use wasmtime_wasi::bindings::clocks::{monotonic_clock, wall_clock};
+use wasmtime_wasi::bindings::io::error;
+use wasmtime_wasi::bindings::random::random;
+use wasmtime_wasi::bindings::sockets::{tcp, udp};
 
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiView};
 
@@ -18,7 +23,11 @@ use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiView};
 struct RuntimeArgs {
     /// The example name
     #[arg(long)]
-    example: String,
+    example: Option<String>,
+
+    /// A Wasm component.
+    #[arg(long)]
+    wasm: Option<String>,
 }
 
 wasmtime::component::bindgen!({
@@ -136,13 +145,33 @@ async fn main() -> anyhow::Result<()> {
     let closure = type_annotate::<_>(|t| t);
     Example::add_to_linker_imports_get_host(&mut linker, closure)?;
 
+    fn type_annotate_wasi<T, F>(val: F) -> F
+    where
+        F: Fn(&mut T) -> &mut T,
+    {
+        val
+    }
+    let wasi_closure = type_annotate_wasi::<HostState, _>(|t| t);
+    stdin::add_to_linker_get_host(&mut linker, wasi_closure)?;
+    stdout::add_to_linker_get_host(&mut linker, wasi_closure)?;
+    stderr::add_to_linker_get_host(&mut linker, wasi_closure)?;
+    error::add_to_linker_get_host(&mut linker, wasi_closure)?;
+    monotonic_clock::add_to_linker_get_host(&mut linker, wasi_closure)?;
+    wall_clock::add_to_linker_get_host(&mut linker, wasi_closure)?;
+    tcp::add_to_linker_get_host(&mut linker, wasi_closure)?;
+    udp::add_to_linker_get_host(&mut linker, wasi_closure)?;
+    random::add_to_linker_get_host(&mut linker, wasi_closure)?;
+
     let (main_thread_loop, main_thread_proxy) =
         wasi_mini_canvas_wasmtime::create_wasi_winit_event_loop();
     let host_state = HostState::new(main_thread_proxy);
 
     let mut store = Store::new(&engine, host_state);
 
-    let wasm_path = format!("./target/example-{}.wasm", args.example);
+    let wasm_path = match args.example {
+        Some(ex) => format!("./target/example-{}.wasm", ex),
+        _ => args.wasm.unwrap(),
+    };
 
     let component =
         Component::from_file(&engine, &wasm_path).context("Component file not found")?;

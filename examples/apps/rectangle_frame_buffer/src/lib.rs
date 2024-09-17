@@ -56,7 +56,6 @@ fn draw_rectangle() {
 
         if pollables_res.contains(&2) {
             frame_listener.get();
-            print(&format!("frame event"));
 
             let graphics_buffer = graphics_context.get_current_buffer();
 
